@@ -436,6 +436,7 @@ async function refreshDiagnostics(): Promise<void> {
       rkp_tee: { status: 'available', pid: null },
       rkp_strongbox: { status: 'unavailable', pid: null },
       selinux: 'enforcing',
+      soter: { status: 'disabled', pid: null },
     }
     diagnosticsStatus.value = 'ready'
     return

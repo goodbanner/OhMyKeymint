@@ -188,7 +188,7 @@ def build_binary(
     print(f"Building {bin_name} for {abi} ({target}, {build_type})...")
 
     env, cargo_patch = cargo_context_for_target(target)
-    cmd = ["cargo", "+nightly", "--config", cargo_patch, "build", "--locked", "--target", target]
+    cmd = ["cargo", "+nightly", "--config", cargo_patch, "build", "--target", target]
     if package:
         cmd.extend(["-p", package, "--bin", bin_name])
     else:
@@ -247,7 +247,6 @@ def build_cdylib(
         "--config",
         cargo_patch,
         "build",
-        "--locked",
         "--target",
         target,
         "-p",

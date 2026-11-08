@@ -26,7 +26,7 @@ def main() -> int:
     args = parser.parse_args()
     target = ABI_TO_TARGET[args.abi]
     profile = "debug" if args.debug else "release"
-    command = ["cargo", "build", "--locked", "--target", target,
+    command = ["cargo", "build", "--target", target,
                "-p", "soter-ta", "--bin", "soterta-svc"]
     if not args.debug:
         command.append("--release")

@@ -19,6 +19,30 @@ pub(crate) fn identity(pid: i32) -> Option<String> {
     Some(format!("{pid}:{start}"))
 }
 
+fn socket_context_from_host(context: &str) -> Result<String> {
+    let context = context.trim_end_matches(['\0', '\n']);
+    let fields: Vec<_> = context.splitn(4, ':').collect();
+    if fields.len() != 4
+        || fields[0] != "u"
+        || fields[1] != "r"
+        || !matches!(fields[2], "platform_app" | "system_app")
+        || !fields[3].starts_with("s0")
+        || (fields[3] != "s0" && !fields[3].starts_with("s0:c"))
+        || !fields[3]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b's' | b'c' | b':' | b',' | b'.'))
+    {
+        bail!("Unsupported SOTER host security context");
+    }
+    // Android app MLS categories must match on Unix datagram sendto and on
+    // the inherited stream endpoints. Keep the existing system_file type.
+    Ok(format!("u:object_r:system_file:{}", fields[3]))
+}
+
+pub(crate) fn socket_context(pid: i32) -> Result<String> {
+    socket_context_from_host(&fs::read_to_string(format!("/proc/{pid}/attr/current"))?)
+}
+
 pub fn run() -> Result<()> {
     if unsafe { libc::geteuid() } != 0 {
         bail!("native SOTER supervisor requires root");
@@ -38,12 +62,12 @@ pub fn run() -> Result<()> {
     // state, or socket file is created and the settings lock is not held.
     let singleton = fs::File::open(crate::utils::current_exe_path()?)?;
     if unsafe { libc::flock(singleton.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=watch state=already_running");
+        log::info!(target: "omk_soter_local", "event=soter path=native_local stage=watch state=already_running");
         return Ok(());
     }
     let mut injected = BTreeSet::new();
     let mut last_state = None;
-    log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=watch state=started");
+    log::info!(target: "omk_soter_local", "event=soter path=native_local stage=watch state=started");
     loop {
         let state = if matches!(soter_ta::bridge::active_config(), Ok(Some(_))) {
             let mut live = BTreeSet::new();
@@ -69,27 +93,27 @@ pub fn run() -> Result<()> {
                     unsupported += 1;
                     continue;
                 }
-                kmr_common::selinux::set_sockcreate_con("u:object_r:system_file:s0")?;
-                let channels =
-                    (|| -> std::io::Result<_> { Ok((UnixStream::pair()?, UnixStream::pair()?)) })();
-                kmr_common::selinux::clear_sockcreate_con()?;
-                let ((auth_root, auth_host), (call_root, call_host)) = channels?;
+                let context = socket_context(pid)?;
+                let ((auth_root, auth_host), (call_root, call_host)) =
+                    kmr_common::selinux::with_sockcreate_con(&context, || {
+                        Ok((UnixStream::pair()?, UnixStream::pair()?))
+                    })?;
                 soter_ta::bridge::serve(auth_root, call_root)?;
                 if identity(pid).as_ref() != Some(&id) {
-                    log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=inject pid={pid} state=host_changed");
+                    log::info!(target: "omk_soter_local", "event=soter path=native_local stage=inject pid={pid} state=host_changed");
                     continue;
                 }
-                log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=inject pid={pid} state=start");
+                log::info!(target: "omk_soter_local", "event=soter path=native_local stage=inject pid={pid} state=start");
                 match crate::inject::inject_soter(
                     Pid::from_raw(pid),
                     [auth_host.as_raw_fd(), call_host.as_raw_fd()],
                 ) {
                     Ok(()) => {
                         injected.insert(id);
-                        log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=inject pid={pid} state=installed");
+                        log::info!(target: "omk_soter_local", "event=soter path=native_local stage=inject pid={pid} state=installed");
                     }
                     Err(error) => {
-                        log::warn!(target: "omk_soter_remote", "event=soter path=native_remote stage=inject pid={pid} state=failed error={error:#}")
+                        log::warn!(target: "omk_soter_local", "event=soter path=native_local stage=inject pid={pid} state=failed error={error:#}")
                     }
                 }
             }
@@ -107,9 +131,34 @@ pub fn run() -> Result<()> {
             "inactive"
         };
         if last_state != Some(state) {
-            log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=watch state={state}");
+            log::info!(target: "omk_soter_local", "event=soter path=native_local stage=watch state={state}");
             last_state = Some(state);
         }
         std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socket_labels_preserve_app_categories() {
+        assert_eq!(
+            socket_context_from_host("u:r:platform_app:s0:c512,c768\0").unwrap(),
+            "u:object_r:system_file:s0:c512,c768"
+        );
+        assert_eq!(
+            socket_context_from_host("u:r:system_app:s0\n").unwrap(),
+            "u:object_r:system_file:s0"
+        );
+        for context in [
+            "u:r:untrusted_app:s0:c512,c768",
+            "u:r:platform_app",
+            "u:r:platform_app:s1",
+            "u:r:platform_app:s0\nother",
+        ] {
+            assert!(socket_context_from_host(context).is_err());
+        }
     }
 }

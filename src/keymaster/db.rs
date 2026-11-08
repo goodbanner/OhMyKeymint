@@ -2421,8 +2421,7 @@ impl KeystoreDB {
                     .context("Domain:Grant: query failed.")?;
                 let (key_id, access_vector): (i64, i32) =
                     db_utils::with_rows_extract_one(&mut rows, |row| {
-                        let r =
-                            row.map_or(Err(KsError::Rc(ResponseCode::KEY_NOT_FOUND)), Ok)?;
+                        let r = row.map_or(Err(KsError::Rc(ResponseCode::KEY_NOT_FOUND)), Ok)?;
                         Ok((
                             r.get(0).context("Failed to unpack key_id.")?,
                             r.get(1).context("Failed to unpack access_vector.")?,
@@ -2452,8 +2451,7 @@ impl KeystoreDB {
                         .query(params![key.nspace, KeyLifeCycle::Live])
                         .context("Domain::KEY_ID: query failed.")?;
                     db_utils::with_rows_extract_one(&mut rows, |row| {
-                        let r =
-                            row.map_or(Err(KsError::Rc(ResponseCode::KEY_NOT_FOUND)), Ok)?;
+                        let r = row.map_or(Err(KsError::Rc(ResponseCode::KEY_NOT_FOUND)), Ok)?;
                         Ok((
                             Domain(r.get(0).context("Failed to unpack domain.")?),
                             r.get(1).context("Failed to unpack namespace.")?,

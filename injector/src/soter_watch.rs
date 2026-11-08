@@ -20,6 +20,30 @@ pub(crate) fn identity(pid: i32) -> Option<String> {
 }
 
 pub fn run() -> Result<()> {
+fn socket_context_from_host(context: &str) -> Result<String> {
+    let context = context.trim_end_matches(['\0', '\n']);
+    let fields: Vec<_> = context.splitn(4, ':').collect();
+    if fields.len() != 4
+        || fields[0] != "u"
+        || fields[1] != "r"
+        || !matches!(fields[2], "platform_app" | "system_app")
+        || !fields[3].starts_with("s0")
+        || (fields[3] != "s0" && !fields[3].starts_with("s0:c"))
+        || !fields[3]
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b's' | b'c' | b':' | b',' | b'.'))
+    {
+        bail!("Unsupported SOTER host security context");
+    }
+    // Android app MLS categories must match on Unix datagram sendto and on
+    // the inherited stream endpoints. Keep the existing system_file type.
+    Ok(format!("u:object_r:system_file:{}", fields[3]))
+}
+
+pub(crate) fn socket_context(pid: i32) -> Result<String> {
+    socket_context_from_host(&fs::read_to_string(format!("/proc/{pid}/attr/current"))?)
+}
+
     if unsafe { libc::geteuid() } != 0 {
         bail!("native SOTER supervisor requires root");
     }

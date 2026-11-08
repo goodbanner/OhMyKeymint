@@ -101,6 +101,7 @@ elif [ "$ARCH" = "arm64" ] || [ "$ARCH" = "arm64-v8a" ]; then
   ZYGISK_ABI="arm64-v8a"
   extract "$ZIPFILE" 'libs/arm64-v8a/keymint' "$MODPATH"
   extract "$ZIPFILE" 'libs/arm64-v8a/inject'  "$MODPATH"
+extract "$ZIPFILE" 'libs/arm64-v8a/soterta-svc' "$MODPATH"
 else
   abort "! Unsupported platform: $ARCH"
 fi

@@ -25,10 +25,14 @@ import {
 } from 'miuix-vue/icons'
 import {
   afterPaint,
+  parsePackageUserTarget,
   type AppList,
   type SelectableAppEntry,
 } from '../app_list/app_list'
-import { type Cli } from '../cli'
+import { type Cli, type SoterHalState } from '../cli'
+  type SelectableAppEntry,
+} from '../app_list/app_list'
+import { type Cli, type SoterHalState } from '../cli'
 import { i18n } from '../i18n'
 import { isDev } from '../utils/dev'
 import TargetAppRow from './TargetAppRow.vue'
@@ -86,6 +90,18 @@ const autoEnabled = ref(false)
 const autoStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const autoBusy = ref(false)
 const autoError = ref('')
+const appSheetOpen = ref(false)
+const appSettingsEntry = ref<SelectableAppEntry | null>(null)
+const appSettingsStatus = ref<'loading' | 'ready' | 'error'>('loading')
+const appSettingsBusy = ref(false)
+const appSettingsError = ref('')
+const soterSelection = ref<Pick<SoterHalState, 'enabled' | 'remote_enabled' | 'app_enabled' | 'app_targets'> | null>(null)
+let appSettingsGeneration = 0
+let returnToSystemSheet = false
+const appSoterSelected = computed(() => !!appSettingsEntry.value
+  && soterSelection.value?.app_targets.includes(appSettingsEntry.value.targetKey) === true)
+const appSoterReady = computed(() => soterSelection.value?.app_enabled === true
+  && soterSelection.value.remote_enabled)
 
 let disposed = false
 
@@ -368,6 +384,10 @@ function closeSystemApps(): void {
 }
 
 function dismissOverlay(): boolean {
+  if (appSheetOpen.value) {
+    closeAppSettings()
+    return true
+  }
   if (systemSheetOpen.value) {
     closeSystemApps()
     return true
@@ -377,6 +397,80 @@ function dismissOverlay(): boolean {
     return true
   }
   return false
+}
+}
+function openAppSettings(entry: SelectableAppEntry): void {
+  if (props.loading || appSettingsBusy.value) return
+  returnToSystemSheet = systemSheetOpen.value
+  systemSheetOpen.value = false
+  menuOpen.value = false
+  appSettingsEntry.value = entry
+  appSheetOpen.value = true
+  void loadAppSettings()
+}
+
+function closeAppSettings(): void {
+  if (appSettingsBusy.value) return
+  appSettingsGeneration++
+  appSheetOpen.value = false
+  if (returnToSystemSheet) systemSheetOpen.value = true
+  returnToSystemSheet = false
+}
+
+async function loadAppSettings(): Promise<void> {
+  if (!appSheetOpen.value || appSettingsBusy.value) return
+  const currentGeneration = ++appSettingsGeneration
+  appSettingsStatus.value = 'loading'
+  appSettingsError.value = ''
+  try {
+    await afterPaint()
+    if (disposed || currentGeneration !== appSettingsGeneration || !appSheetOpen.value) return
+    if (isDev()) {
+      soterSelection.value = { enabled: false, remote_enabled: false, app_enabled: false, app_targets: [] }
+    } else {
+      const state = await props.cli.getSoterHal()
+      if (disposed || currentGeneration !== appSettingsGeneration || !appSheetOpen.value) return
+      retainSoterSelection(state)
+    }
+    appSettingsStatus.value = 'ready'
+  } catch {
+    if (disposed || currentGeneration !== appSettingsGeneration || !appSheetOpen.value) return
+    appSettingsStatus.value = 'error'
+    appSettingsError.value = translate('soter_app_load_error', 'Unable to read app SOTER settings. Check that the installed module is up to date.')
+  }
+}
+
+async function setAppSoter(enabled: boolean): Promise<void> {
+  const entry = appSettingsEntry.value
+  if (!entry || appSettingsBusy.value || appSettingsStatus.value !== 'ready' || isDev()) return
+  appSettingsBusy.value = true
+  appSettingsError.value = ''
+  try {
+    await afterPaint()
+    if (disposed) return
+    const state = await props.cli.setSoterAppTarget(entry.targetKey, enabled)
+    if (disposed) return
+    retainSoterSelection(state)
+    void showSnackbar({ message: translate('soter_app_saved', 'App SOTER selection saved') })
+  } catch (error) {
+    if (!disposed) {
+      appSettingsError.value = translate('soter_app_save_error', 'Unable to save this app SOTER selection. Retry to read the current setting.')
+      if (error instanceof Error && error.message) appSettingsError.value += ` ${error.message}`
+      appSettingsStatus.value = 'error'
+    }
+  } finally {
+    appSettingsBusy.value = false
+  }
+}
+
+function retainSoterSelection(state: SoterHalState): void {
+  soterSelection.value = {
+    enabled: state.enabled,
+    remote_enabled: state.remote_enabled,
+    app_enabled: state.app_enabled,
+    app_targets: [...state.app_targets],
+  }
+}
 }
 
 onBeforeUnmount(() => {
@@ -534,7 +628,9 @@ defineExpose({
               :disabled="loading || selectingRecommended || !applyEnabled"
               :app-name="entry.appName"
               :package-name="entry.packageName"
+              :settings-title="translate('soter_app_settings', 'App settings')"
               @select="setSelected(entry, $event)"
+              @settings="openAppSettings(entry)"
             />
           </template>
         </section>
@@ -552,7 +648,9 @@ defineExpose({
               :disabled="loading || selectingRecommended || !applyEnabled"
               :app-name="entry.appName"
               :package-name="entry.packageName"
+              :settings-title="translate('soter_app_settings', 'App settings')"
               @select="setSelected(entry, $event)"
+              @settings="openAppSettings(entry)"
             />
           </template>
         </section>
@@ -608,7 +706,9 @@ defineExpose({
             :disabled="loading || !applyEnabled"
             :app-name="entry.appName"
             :package-name="entry.packageName"
+              :settings-title="translate('soter_app_settings', 'App settings')"
             @select="setSelected(entry, $event)"
+              @settings="openAppSettings(entry)"
           />
           </template>
           <div v-if="renderedSystemEntries.length < systemEntries.length" class="app-list-batch-loading" role="status">
@@ -621,6 +721,54 @@ defineExpose({
           <MiuixIcon :icon="All" :size="32" />
           <p>{{ translate('app_targets_empty', 'No matching apps') }}</p>
         </div>
+      </div>
+    </MiuixBottomSheet>
+    <MiuixBottomSheet
+      v-if="appSheetOpen"
+      :model-value="appSheetOpen"
+      :title="appSettingsEntry.appName"
+      :close-on-click-modal="!appSettingsBusy"
+      @update:model-value="value => { if (!value) closeAppSettings() }"
+    >
+      <template #start-action>
+        <MiuixIconButton
+          :disabled="appSettingsBusy"
+          :aria-label="translate('functional_button_cancel', 'Close')"
+          @click="closeAppSettings"
+        >
+          <MiuixIcon :icon="Close" />
+        </MiuixIconButton>
+      </template>
+      <div class="target-app-sheet" :aria-busy="appSettingsStatus == 'loading' || appSettingsBusy">
+        <p class="target-app-identity">{{ appSettingsEntry.packageName }}</p>
+        <p class="target-app-profile">{{ translate('app_target_user', 'User') }} {{ appSettingsEntry.userId }}</p>
+        <div v-if="appSettingsStatus == 'loading'" class="target-app-pending" role="status">
+          <MiuixProgressIndicator type="circular" :size="28" />
+          <span>{{ translate('home_status_loading', 'Checking') }}</span>
+        </div>
+        <template v-else-if="appSettingsStatus == 'ready'">
+          <MiuixSwitchPreference
+            :model-value="appSoterSelected && appSoterReady"
+            :title="translate('soter_app_enabled', 'Take over remote SOTER')"
+            :summary="translate('soter_app_enabled_desc', 'Opt in this app and automatically enable per-app remote forwarding. Independent of normal OMK selection; saved immediately.')"
+            :disabled="appSettingsBusy || isDev()"
+            @update:model-value="setAppSoter"
+          />
+          <p v-if="soterSelection.enabled" class="target-app-note">
+            {{ translate('soter_app_global_effect', 'Global takeover replaces the stock HAL for all apps using it. If the relay is enabled, unselected apps may also use the remote relay.') }}
+          </p>
+          <p v-if="appSoterSelected && !appSoterReady" class="target-app-note target-app-note--warning" role="status">
+            {{ translate('soter_app_inactive', 'This app is saved, but remote SOTER is inactive. Turn on this switch to activate per-app forwarding.') }}
+          </p>
+          <div v-if="appSettingsBusy" class="target-app-pending" role="status">
+            <MiuixProgressIndicator type="circular" :size="22" />
+          </div>
+        </template>
+        <p v-if="appSettingsError" class="target-app-error" role="alert">{{ appSettingsError }}</p>
+        <MiuixButton v-if="appSettingsStatus == 'error'" @click="loadAppSettings">
+          {{ translate('functional_button_retry', 'Retry') }}
+        </MiuixButton>
+        <p v-if="isDev()" class="target-app-note">{{ translate('soter_hal_preview', 'Preview only. Device settings cannot be saved here.') }}</p>
       </div>
     </MiuixBottomSheet>
 

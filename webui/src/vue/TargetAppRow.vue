@@ -8,6 +8,7 @@ const props = defineProps<{
   appName: string
   selected: boolean
   disabled: boolean
+  settingsTitle?: string
 }>()
 
 const emit = defineEmits<{
@@ -47,8 +48,14 @@ watch(() => props.packageName, () => { iconLoaded.value = false })
         </span>
       </template>
     </MiuixCheckboxPreference>
-    <button type="button" class="target-app-settings" :disabled="disabled"
-      :aria-label="'SOTER: ' + appName" @click="emit('settings')">
+    <button
+      type="button"
+      class="target-app-settings"
+      :disabled="disabled"
+      :aria-label="props.settingsTitle ? props.settingsTitle + ': ' + appName : 'SOTER: ' + appName"
+      :title="props.settingsTitle"
+      @click="emit('settings')"
+    >
       <MiuixIcon :icon="More" :size="22" />
     </button>
   </div>
@@ -79,12 +86,12 @@ watch(() => props.packageName, () => { iconLoaded.value = false })
   -webkit-tap-highlight-color: transparent; }
 .target-app-settings:active { background: color-mix(in srgb, var(--m-color-primary) 10%, transparent); }
 .target-app-settings:focus-visible { outline: 2px solid var(--m-color-primary); outline-offset: -4px; }
+.target-app-settings:disabled { opacity: .45; cursor: default; }
 
 .app-icon-frame {
   position: relative;
   box-sizing: border-box;
   display: inline-flex;
-  flex: none;
   align-items: center;
   justify-content: center;
   width: 42px;

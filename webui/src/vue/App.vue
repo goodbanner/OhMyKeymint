@@ -762,6 +762,15 @@ watch(soterHalOpen, open => {
   if (open) trackSoterHalOverlay()
   else if (overlayHistory.delete('soter-hal')) history.consume('soter-hal')
 })
+function trackRkpOverlay(): void {
+  if (!rkpOpen.value || overlayHistory.has('rkp')) return
+  overlayHistory.add('rkp')
+  history.push('rkp', () => {
+    overlayHistory.delete('rkp')
+    if (maintenanceBusy.value === 'rkp') void nextTick(trackRkpOverlay)
+    else rkpOpen.value = false
+  })
+}
 watch(rkpOpen, open => {
   if (open) trackRkpOverlay()
   else if (overlayHistory.delete('rkp')) history.consume('rkp')

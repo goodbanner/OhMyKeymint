@@ -25,7 +25,6 @@ import {
 } from 'miuix-vue/icons'
 import {
   afterPaint,
-  parsePackageUserTarget,
   type AppList,
   type SelectableAppEntry,
 } from '../app_list/app_list'

@@ -68,6 +68,7 @@ extract "$ZIPFILE" 'uninstall.sh'    "$MODPATH"
 extract "$ZIPFILE" 'sepolicy.rule'   "$MODPATH"
 extract "$ZIPFILE" 'daemon'          "$MODPATH"
 extract "$ZIPFILE" 'daemon-injector' "$MODPATH"
+extract "$ZIPFILE" 'soterta.sh'      "$MODPATH"
 extract "$ZIPFILE" 'injector.toml'   "$MODPATH"
 extract "$ZIPFILE" 'keybox.xml'      "$MODPATH"
 extract "$ZIPFILE" 'webroot.manifest' "$MODPATH"
@@ -81,7 +82,8 @@ while IFS= read -r asset || [ -n "$asset" ]; do
 done < "$MODPATH/webroot.manifest"
 
 chmod 755 "$MODPATH/daemon" "$MODPATH/daemon-injector" \
-  "$MODPATH/post-fs-data.sh" "$MODPATH/service.sh" "$MODPATH/uninstall.sh"
+  "$MODPATH/post-fs-data.sh" "$MODPATH/service.sh" "$MODPATH/uninstall.sh" \
+  "$MODPATH/soterta.sh"
 find "$MODPATH/webroot" -type d -exec chmod 0755 {} \;
 find "$MODPATH/webroot" -type f -exec chmod 0644 {} \;
 chmod 0644 "$MODPATH/webroot.manifest"
@@ -105,7 +107,8 @@ fi
 
 [ -f "$BINDIR/keymint" ] || abort "! Missing $BINDIR/keymint"
 [ -f "$BINDIR/inject" ] || abort "! Missing $BINDIR/inject"
-chmod 755 "$BINDIR/keymint" "$BINDIR/inject"
+[ -f "$BINDIR/soterta-svc" ] || abort "! Missing $BINDIR/soterta-svc"
+chmod 755 "$BINDIR/keymint" "$BINDIR/inject" "$BINDIR/soterta-svc"
 
 ui_print "- Extracting Zygisk PIF payload"
 extract "$ZIPFILE" "zygisk/$ZYGISK_ABI.so" "$MODPATH"

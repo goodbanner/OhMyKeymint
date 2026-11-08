@@ -41,7 +41,7 @@ pub fn initialize(auth: UnixStream, calls: UnixStream) -> anyhow::Result<()> {
     *CLIENT.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(client));
     ENABLED.store(true, Ordering::Release);
     super::install::init_soter_hooks()?;
-    log::info!(target: "omk_soter_local", "event=soter path=native_local stage=hook state=ready independent_of_beta=true");
+    log::info!(target: "omk_soter_remote", "event=soter path=native_remote stage=hook state=ready independent_of_beta=true");
     Ok(())
 }
 
@@ -262,7 +262,7 @@ fn synthetic(connection: BinderStateKey, cmd: u32, payload: &[u8]) -> Result<boo
             .map(|v| u64::from_ne_bytes(*v) as usize)
             .collect::<Vec<_>>()
     } else {
-        log::warn!(target: "omk_soter_local", "event=soter path=native_local stage=decode uid={uid} wire_tx={} reason=invalid_offsets", tr.code);
+        log::warn!(target: "omk_soter_remote", "event=soter path=native_remote stage=decode uid={uid} wire_tx={} reason=invalid_offsets", tr.code);
         return Err(libc::EINVAL);
     };
     let (tx, request) =
@@ -293,13 +293,13 @@ fn synthetic(connection: BinderStateKey, cmd: u32, payload: &[u8]) -> Result<boo
             }
         };
     // Native-only operations never consume synthetic reply capacity.
-    // Check ownership bounds before changing local identity state.
+    // Check ownership bounds before making a remote mutation.
     {
         let replies = REPLIES.lock().unwrap_or_else(|e| e.into_inner());
         if replies.len() >= 64
             || replies.values().map(OwnedReply::allocation_size).sum::<usize>() > 16 * MAX_IO
         {
-            log::warn!(target: "omk_soter_local", "event=soter path=native_local stage=reply uid={uid} tx={tx} reason=reply_capacity");
+            log::warn!(target: "omk_soter_remote", "event=soter path=native_remote stage=reply uid={uid} tx={tx} reason=reply_capacity");
             return Err(libc::EBUSY);
         }
     }

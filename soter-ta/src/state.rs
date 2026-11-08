@@ -117,9 +117,6 @@ pub struct Session {
 /// (mode 0600).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaState {
-    /// Last effective CPU-ID for each caller; changes invalidate that caller's keys.
-    #[serde(default)]
-    pub cpu_overrides: BTreeMap<u32, String>,
     /// Synthetic device id: 32 hex characters, generated locally and never
     /// copied from another device.
     pub cpu_id: String,
@@ -150,7 +147,6 @@ impl TaState {
         let mut id = [0u8; 12];
         rng.fill_bytes(&mut id);
         Some(Self {
-            cpu_overrides: BTreeMap::new(),
             cpu_id: format!("00000000{}", hex::encode(id)),
             attk: KeyPair::generate()?,
             uids: BTreeMap::new(),
@@ -416,16 +412,8 @@ impl TaState {
         if self.auth_of(uid, kname).is_none() {
             return (SOTER_ERR_NO_AUTH_KEY, 0);
         }
-        if self.sessions.len() >= 512 {
-            return (SOTER_ERR_TA_UNAVAILABLE, 0);
-        }
-        let session = loop {
-            let candidate = OsRng.next_u64() & i64::MAX as u64;
-            if candidate != 0 && !self.sessions.contains_key(&candidate) {
-                break candidate;
-            }
-        };
-        self.next_session = session;
+        self.next_session = self.next_session.wrapping_add(1).max(1);
+        let session = self.next_session;
         self.sessions.insert(
             session,
             Session {
@@ -473,14 +461,15 @@ impl TaState {
     /// Evidence has to be *verifiable* to count: both hooks installed, both
     /// marks taken in this boot, the session still inside [`BIO_WINDOW_MS`], the
     /// mark moved past the one the session opened with, and no earlier
-    /// signature having spent it. Missing evidence always refuses signing;
-    /// a counter without a fresh match answers `false`, the `-26` a stock TA
-    /// gives without a match.
+    /// signature having spent it. Missing evidence here represents an explicit
+    /// disabled gate. The shared runtime refuses unreadable evidence from an
+    /// enabled gate before dispatch; a counter without a fresh match answers
+    /// `false`, the `-26` a stock TA gives without a match.
     fn biometric_ok(&mut self, entry: &Session, platform: Platform) -> bool {
         let (Some(opened), Some(before), Some(now), Some(after)) =
             (entry.opened_ms, entry.bio_mark, platform.boot_ms, platform.bio_mark)
         else {
-            return false;
+            return true;
         };
         if !same_boot(before, after) || now < opened || now - opened > BIO_WINDOW_MS {
             return false;
@@ -496,9 +485,10 @@ impl TaState {
         true
     }
 
-    /// `getDeviceId`: raw bytes of the 32/36-hex-character `cpu_id` embedded
-    /// in every blob. The stock HAL reports a byte buffer, which the Java
-    /// layer passes through unchanged.
+    /// `getDeviceId`: ASCII bytes of the same 32-hex-character string that is
+    /// embedded as `cpu_id` in every blob. The stock HAL reports the id as a
+    /// byte buffer and the Java layer passes it through, so keeping both
+    /// spellings identical keeps a checker from seeing two ids on one device.
     pub fn device_id(&self) -> (i32, Vec<u8>) {
         // Raw bytes, not the hex spelling: a device with a working TA reports
         // the id whose hex is the `cpu_id` every blob carries (B-side capture,

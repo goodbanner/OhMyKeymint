@@ -32,7 +32,6 @@ import { type Cli } from '../cli'
 import { i18n } from '../i18n'
 import { isDev } from '../utils/dev'
 import TargetAppRow from './TargetAppRow.vue'
-import SoterIdentityDialog from './SoterIdentityDialog.vue'
 
 interface Props {
   appList: AppList
@@ -87,26 +86,7 @@ const autoEnabled = ref(false)
 const autoStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const autoBusy = ref(false)
 const autoError = ref('')
-const identityOpen = ref(false)
-const identityTarget = ref('')
-const identityBatchTargets = ref<string[] | undefined>()
-const identityDialog = ref<InstanceType<typeof SoterIdentityDialog> | null>(null)
-function openIdentity(entry: SelectableAppEntry): void {
-  if (props.loading || props.saving || props.saveError) return
-  systemSheetOpen.value = false
-  menuOpen.value = false
-  identityTarget.value = entry.targetKey
-  identityBatchTargets.value = undefined
-  identityOpen.value = true
-}
 
-function openBulkIdentity(): void {
-  if (props.loading || props.saving || props.saveError || selectingRecommended.value) return
-  identityTarget.value = ''
-  identityBatchTargets.value = props.appList.getSelectedIdentityTargets()
-  menuOpen.value = false
-  identityOpen.value = true
-}
 let disposed = false
 
 async function loadAutoTargets(): Promise<void> {
@@ -257,7 +237,7 @@ watch(() => props.refreshing, refreshing => {
 })
 // A menu followed by the system sheet is one overlay in the parent's history.
 // Watching the combined state also avoids closing a second layer on Android Back.
-watch(() => menuOpen.value || systemSheetOpen.value || identityOpen.value, open => {
+watch(() => menuOpen.value || systemSheetOpen.value , open => {
   if (open) emit('overlay-open')
   else emit('overlay-close')
 })
@@ -388,7 +368,6 @@ function closeSystemApps(): void {
 }
 
 function dismissOverlay(): boolean {
-  if (identityOpen.value) { identityDialog.value?.requestClose(); return true }
   if (systemSheetOpen.value) {
     closeSystemApps()
     return true
@@ -476,10 +455,6 @@ defineExpose({
                   <MiuixIcon :icon="AddCircle" :size="21" />
                   <span>{{ translate('menu_add_system_app', 'Add System App') }}</span>
                 </MiuixButton>
-                <MiuixButton role="menuitem" :disabled="loading || saving || saveError || selectingRecommended" @click="openBulkIdentity">
-                  <MiuixIcon :icon="AddCircle" :size="21" />
-                  <span>{{ translate('soter_bulk_title', 'Assign local identity to selected apps') }}</span>
-                </MiuixButton>
               </MiuixCard>
             </Transition>
           </div>
@@ -560,7 +535,6 @@ defineExpose({
               :app-name="entry.appName"
               :package-name="entry.packageName"
               @select="setSelected(entry, $event)"
-              @settings="openIdentity(entry)"
             />
           </template>
         </section>
@@ -579,7 +553,6 @@ defineExpose({
               :app-name="entry.appName"
               :package-name="entry.packageName"
               @select="setSelected(entry, $event)"
-              @settings="openIdentity(entry)"
             />
           </template>
         </section>
@@ -636,7 +609,6 @@ defineExpose({
             :app-name="entry.appName"
             :package-name="entry.packageName"
             @select="setSelected(entry, $event)"
-            @settings="openIdentity(entry)"
           />
           </template>
           <div v-if="renderedSystemEntries.length < systemEntries.length" class="app-list-batch-loading" role="status">
@@ -652,8 +624,6 @@ defineExpose({
       </div>
     </MiuixBottomSheet>
 
-    <SoterIdentityDialog ref="identityDialog" v-model="identityOpen" :cli="cli" :target="identityTarget"
-      :batch-targets="identityBatchTargets" />
   </section>
 </template>
 

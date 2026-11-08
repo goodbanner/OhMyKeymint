@@ -29,7 +29,8 @@ import { isDev } from '../utils/dev'
 import HomeView, { type KeyboxStatus, type ModuleStatus, type TeeStatus } from './HomeView.vue'
 import PifFingerprintDialog from './PifFingerprintDialog.vue'
 import SettingsView from './SettingsView.vue'
-import SoterIdentityDialog from './SoterIdentityDialog.vue'
+import SoterDialog from './SoterDialog.vue'
+import SoterHalDialog from './SoterHalDialog.vue'
 import TargetsView from './TargetsView.vue'
 import ToolsView, { type ToolEvent } from './ToolsView.vue'
 import FileBrowserSheet from './FileBrowserSheet.vue'
@@ -82,14 +83,16 @@ const rkpIssueError = ref('')
 const rkpIssuedArtifacts = ref<RkpIssuedArtifact[]>([])
 const pendingRkpImport = ref<RkpIssuedArtifact | null>(null)
 const pifOpen = ref(false)
-const soterLocalOpen = ref(false)
-const soterLocalDialog = ref<InstanceType<typeof SoterIdentityDialog> | null>(null)
+const soterOpen = ref(false)
+const soterHalOpen = ref(false)
 const keyboxOpen = ref(false)
 const selectedKeybox = ref<{ name: string, contents: Uint8Array } | null>(null)
 const keyboxBusy = ref(false)
 const targetsView = ref<InstanceType<typeof TargetsView> | null>(null)
 const settingsView = ref<InstanceType<typeof SettingsView> | null>(null)
 const pifDialog = ref<InstanceType<typeof PifFingerprintDialog> | null>(null)
+const soterDialog = ref<InstanceType<typeof SoterDialog> | null>(null)
+const soterHalDialog = ref<InstanceType<typeof SoterHalDialog> | null>(null)
 
 const pageIds = ['home', 'tools', 'settings'] as const
 const navItems = computed(() => [
@@ -316,7 +319,8 @@ function onTargetsOverlayClose(): void {
 }
 
 function handleEscape(): void {
-  if (soterLocalOpen.value) { soterLocalDialog.value?.requestClose(); return }
+  if (soterOpen.value && soterDialog.value?.busy) return
+  if (soterHalOpen.value && soterHalDialog.value?.busy) return
   if (rkpIssueOpen.value && rkpIssueBusy.value) return
   if (targetsOpen.value && targetsView.value?.dismissOverlay()) return
   if (history.size > 0) history.back()
@@ -638,7 +642,8 @@ function onTool(event: ToolEvent): void {
     case 'clearGmsCache': gmsConfirmOpen.value = true; break
     case 'repairRkp': rkpError.value = ''; rkpOpen.value = true; break
     case 'issueRkp': void openRkpIssue(); break
-    case 'openSoterLocal': soterLocalOpen.value = true; break
+    case 'openSoterBeta': soterOpen.value = true; break
+    case 'openSoterHal': soterHalOpen.value = true; break
   }
 }
 
@@ -726,40 +731,36 @@ watch(pifOpen, open => {
     })
   } else if (!open && overlayHistory.delete('pif-fingerprint')) history.consume('pif-fingerprint')
 })
-watch(soterLocalOpen, open => {
-  if (open && !overlayHistory.has('soter-local')) {
-    overlayHistory.add('soter-local')
-    history.push('soter-local', () => {
-      overlayHistory.delete('soter-local')
-      if (soterLocalDialog.value?.requestClose() === false) {
-        void nextTick(() => {
-          if (soterLocalOpen.value) {
-            overlayHistory.add('soter-local')
-            history.push('soter-local', () => {
-              overlayHistory.delete('soter-local')
-              soterLocalDialog.value?.requestClose()
-            })
-          }
-        })
-      }
-    })
-  } else if (!open && overlayHistory.delete('soter-local')) history.consume('soter-local')
-})
-watch(keyboxOpen, open => {
-  if (open && !overlayHistory.has('keybox')) {
-    overlayHistory.add('keybox')
-    history.push('keybox', () => { if (!keyboxBusy.value) keyboxOpen.value = false })
-  } else if (!open && overlayHistory.delete('keybox')) history.consume('keybox')
-})
-function trackRkpOverlay(): void {
-  if (!rkpOpen.value || overlayHistory.has('rkp')) return
-  overlayHistory.add('rkp')
-  history.push('rkp', () => {
-    overlayHistory.delete('rkp')
-    if (maintenanceBusy.value === 'rkp') void nextTick(trackRkpOverlay)
-    else rkpOpen.value = false
+function trackSoterOverlay(): void {
+  const key = 'soter-beta'
+  if (!soterOpen.value || overlayHistory.has(key)) return
+  overlayHistory.add(key)
+  history.push(key, () => {
+    overlayHistory.delete(key)
+    if (soterDialog.value?.requestClose() === false) {
+      // Re-arm after the current popstate handler finishes so a busy dialog
+      // does not lose its back entry or close the page beneath it.
+      void nextTick(trackSoterOverlay)
+    }
   })
 }
+watch(soterOpen, open => {
+  if (open) trackSoterOverlay()
+  else if (overlayHistory.delete('soter-beta')) history.consume('soter-beta')
+})
+function trackSoterHalOverlay(): void {
+  const key = 'soter-hal'
+  if (!soterHalOpen.value || overlayHistory.has(key)) return
+  overlayHistory.add(key)
+  history.push(key, () => {
+    overlayHistory.delete(key)
+    if (soterHalDialog.value?.requestClose() === false) void nextTick(trackSoterHalOverlay)
+  })
+}
+watch(soterHalOpen, open => {
+  if (open) trackSoterHalOverlay()
+  else if (overlayHistory.delete('soter-hal')) history.consume('soter-hal')
+})
 watch(rkpOpen, open => {
   if (open) trackRkpOverlay()
   else if (overlayHistory.delete('rkp')) history.consume('rkp')
@@ -821,7 +822,8 @@ watch(rkpImportConfirmOpen, open => {
           @clear-gms-cache="onTool('clearGmsCache')"
           @repair-rkp="onTool('repairRkp')"
           @issue-rkp="onTool('issueRkp')"
-          @open-soter-local="onTool('openSoterLocal')"
+          @open-soter-beta="onTool('openSoterBeta')"
+          @open-soter-hal="onTool('openSoterHal')"
         />
       </Transition>
       <Transition name="page-switch">
@@ -1043,6 +1045,7 @@ watch(rkpImportConfirmOpen, open => {
       </div>
     </MiuixDialog>
     <MiuixSnackbarHost />
-    <SoterIdentityDialog ref="soterLocalDialog" v-model="soterLocalOpen" :cli="cli" />
+    <SoterDialog ref="soterDialog" v-model="soterOpen" :cli="cli" @notify="notify" />
+    <SoterHalDialog ref="soterHalDialog" v-model="soterHalOpen" :cli="cli" @notify="notify" />
   </div>
 </template>

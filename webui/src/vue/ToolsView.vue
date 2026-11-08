@@ -7,7 +7,7 @@ import {
   MiuixSmallTitle,
   MiuixTopAppBar,
 } from 'miuix-vue'
-import { AddCircle, BankCards, Replace, Reset, Update } from 'miuix-vue/icons'
+import { AddCircle, BankCards, Lock, Replace, Reset, Update } from 'miuix-vue/icons'
 import { i18n } from '../i18n'
 
 export type ToolEvent =
@@ -19,7 +19,8 @@ export type ToolEvent =
   | 'clearGmsCache'
   | 'repairRkp'
   | 'issueRkp'
-  | 'openSoterLocal'
+  | 'openSoterBeta'
+  | 'openSoterHal'
 
 type BusyPatch = 'sync' | 'restore' | null
 
@@ -38,7 +39,8 @@ const emit = defineEmits<{
   clearGmsCache: []
   repairRkp: []
   issueRkp: []
-  openSoterLocal: []
+  openSoterBeta: []
+  openSoterHal: []
 }>()
 
 function runTool(event: ToolEvent): void {
@@ -51,7 +53,8 @@ function runTool(event: ToolEvent): void {
     case 'clearGmsCache': emit('clearGmsCache'); break
     case 'repairRkp': emit('repairRkp'); break
     case 'issueRkp': emit('issueRkp'); break
-    case 'openSoterLocal': emit('openSoterLocal'); break
+    case 'openSoterBeta': emit('openSoterBeta'); break
+    case 'openSoterHal': emit('openSoterHal'); break
   }
 }
 
@@ -74,10 +77,16 @@ const groups = [
     title: tr('tools_key_management', 'Key management'),
     items: [
       {
-        event: 'openSoterLocal' as const,
+        event: 'openSoterBeta' as const,
+        icon: Lock,
+        title: tr('tools_soter_beta', 'Fix Tencent Soter Server (Testing)'),
+        summary: tr('tools_soter_beta_desc', 'Experimental compatibility for Tencent SoterServer. Requires Zygisk Next.'),
+      },
+      {
+        event: 'openSoterHal' as const,
         icon: BankCards,
-        title: tr('soter_local_title', 'Local SOTER identities'),
-        summary: tr('soter_local_tool_desc', 'Create random local identities and set app CPU-ID overrides.'),
+        title: tr('tools_wechat_soter', 'Fix WeChat payment fingerprint'),
+        summary: tr('tools_wechat_soter_desc', 'Configure the Qualcomm Soter service.'),
       },
       {
         event: 'installKeybox' as const,

@@ -9,7 +9,6 @@ name = "keymint"
 path = "src/main.rs"
 
 [dependencies]
-soter-ta = { path = "soter-ta", version = "0.1.0" }
 kmr-derive = { path = "derive", version = "0.1.0" }
 kmr-common = { path = "common", version = "0.1.0" }
 kmr-crypto-boring = { path = "boringssl", version = "0.1.0" }

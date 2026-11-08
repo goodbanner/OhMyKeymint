@@ -6,6 +6,7 @@ import {
   isSecurityPatchDate,
 } from './security_patch'
 
+const MAX_SOTER_HAL_JSON_BYTES = 16 * 1024
 const MODULE_ROOT = '/data/adb/modules/oh_my_keymint'
 const HOT_UPDATE_ROOT = '/data/adb/omk'
 const SUPPORTED_ABIS = ['arm64-v8a', 'x86_64'] as const
@@ -50,12 +51,22 @@ export type PifFingerprintState = {
 
 export type KeyboxSource = 'google_hardware' | 'google_remote' | 'unknown'
 export type KeyboxLevel = 'tee' | 'strongbox' | 'unknown'
-export interface SoterIdentityState {
-  version: number
+export interface SoterBetaState {
   enabled: boolean
-  identities: { id: string, name: string, cpu_id: string }[]
-  apps: Record<string, { identity: string, cpu_id: string }>
 }
+/** Configuration for the Qualcomm Soter HAL relay. */
+export interface SoterHalState {
+  enabled: boolean
+  remote_enabled: boolean
+  url: string
+  token: string
+  device_id: string
+  tls_insecure: boolean
+  uid_map: string
+  app_enabled: boolean
+  app_targets: string[]
+}
+
 export type PlayIntegrityStatus = 'not_checked'
 export type KeyboxRevocationStatus =
   | 'not_checked'
@@ -160,6 +171,7 @@ export interface DiagnosticsState {
   keymint: ServiceDiagnostic
   keystore2: ServiceDiagnostic
   injector: ServiceDiagnostic
+  soter: ServiceDiagnostic
   tee: HardwareDiagnostic
   strongbox: HardwareDiagnostic
   rkp_tee: ServiceDiagnostic
@@ -228,6 +240,50 @@ function parseRkpIssuedList(output: string): RkpIssuedArtifact[] {
     throw new Error('OMK returned duplicate issued RKP items')
   }
   return artifacts
+}
+
+function parseSoterHalState(output: string): SoterHalState {
+
+  const parsed = parseCanonicalJson(output, 'Soter HAL state')
+
+  if (!isRecord(parsed)
+
+      || !hasOnlyKeys(parsed, ['enabled', 'remote_enabled', 'url', 'token', 'device_id', 'tls_insecure', 'uid_map', 'app_enabled', 'app_targets'])
+
+      || typeof parsed.enabled !== 'boolean'
+
+      || typeof parsed.remote_enabled !== 'boolean'
+
+      || typeof parsed.url !== 'string'
+
+      || typeof parsed.token !== 'string'
+
+      || typeof parsed.device_id !== 'string'
+
+      || typeof parsed.tls_insecure !== 'boolean'
+
+      || typeof parsed.uid_map !== 'string'
+
+      || typeof parsed.app_enabled !== 'boolean'
+
+      || !Array.isArray(parsed.app_targets)
+
+      || !parsed.app_targets.every(value => {
+
+        const target = parseScoopTarget(value)
+
+        return target?.kind === 'package-user' && target.target === value
+
+      })
+
+      || new Set(parsed.app_targets).size !== parsed.app_targets.length) {
+
+    throw new Error('OMK returned invalid Soter HAL state')
+
+  }
+
+  return parsed as unknown as SoterHalState
+
 }
 
 function isSafeText(value: unknown, maxLength: number): value is string {
@@ -428,7 +484,7 @@ function parseHardwareDiagnostic(value: unknown): HardwareDiagnostic {
 function parseDiagnostics(output: string): DiagnosticsState {
   const parsed = parseCanonicalJson(output, 'service diagnostics')
   if (!isRecord(parsed)
-      || !hasOnlyKeys(parsed, ['keymint', 'keystore2', 'injector', 'tee', 'strongbox', 'rkp_tee', 'rkp_strongbox', 'selinux'])
+      || !hasOnlyKeys(parsed, ['keymint', 'keystore2', 'injector', 'soter', 'tee', 'strongbox', 'rkp_tee', 'rkp_strongbox', 'selinux'])
       || (parsed.selinux !== 'enforcing' && parsed.selinux !== 'permissive' && parsed.selinux !== 'unknown')) {
     throw new Error('OMK returned invalid service diagnostics')
   }
@@ -436,6 +492,7 @@ function parseDiagnostics(output: string): DiagnosticsState {
     keymint: parseServiceDiagnostic(parsed.keymint),
     keystore2: parseServiceDiagnostic(parsed.keystore2),
     injector: parseServiceDiagnostic(parsed.injector),
+    soter: parseServiceDiagnostic(parsed.soter),
     tee: parseHardwareDiagnostic(parsed.tee),
     strongbox: parseHardwareDiagnostic(parsed.strongbox),
     rkp_tee: parseServiceDiagnostic(parsed.rkp_tee),
@@ -484,37 +541,82 @@ function parseSupportedAbi(output: string): SupportedAbi | null {
 }
 
 export class Cli {
-  async getSoterLocal(): Promise<SoterIdentityState> {
+  async getSoterBeta(): Promise<SoterBetaState> {
     const { keymint } = await this.#getHelperPaths()
-    return this.#parseSoterLocal(await this.#run(keymint, ['--webui-get-soter-local'], 256 * 1024))
+    const output = await this.#run(keymint, ['--webui-get-soter-beta'], 256)
+    const parsed = parseCanonicalJson(output, 'Soter Beta state')
+    if (!isRecord(parsed)
+        || !hasOnlyKeys(parsed, ['enabled'])
+        || typeof parsed.enabled !== 'boolean') {
+      throw new Error('OMK returned invalid Soter Beta state')
+    }
+    return { enabled: parsed.enabled }
   }
 
-  async changeSoterLocal(change: { action: 'enabled', enabled: boolean }
-    | { action: 'remove', id: string }
-    | { action: 'add', name: string }
-    | { action: 'apps', targets: string[], identity: string }
-    | { action: 'app', target: string, identity: string | null, cpu_id: string }): Promise<SoterIdentityState> {
-    const encoded = encodeBase64Utf8(JSON.stringify(change))
-    if (encoded.length > 120 * 1024) throw new Error('SOTER request exceeds the command size limit')
+  async setSoterBeta(enabled: boolean): Promise<void> {
     const { keymint } = await this.#getHelperPaths()
-    return this.#parseSoterLocal(await this.#run(keymint,
-      ['--webui-set-soter-local-base64', encoded], 256 * 1024))
+    const output = await this.#run(keymint, ['--webui-set-soter-beta', enabled ? '1' : '0'], 256)
+    if (output !== 'soter_beta_saved') {
+      throw new Error('OMK returned an unexpected Soter Beta result')
+    }
   }
 
-  #parseSoterLocal(output: string): SoterIdentityState {
-    const state = parseCanonicalJson(output, 'local SOTER')
-    if (!isRecord(state) || state.version !== 1 || typeof state.enabled !== 'boolean'
-        || !Array.isArray(state.identities) || state.identities.length > 32 || !isRecord(state.apps)
-        || !state.identities.every(item => isRecord(item) && typeof item.id === 'string'
-          && /^[a-f0-9]{32}$/.test(item.id) && typeof item.name === 'string'
-          && typeof item.cpu_id === 'string' && /^(?:[a-f0-9]{32}|[a-f0-9]{36})$/.test(item.cpu_id))
-        || !Object.entries(state.apps).every(([key, app]) => {
-          const target = parseScoopTarget(key)
-          return target?.kind === 'package-user' && isRecord(app)
-            && typeof app.identity === 'string' && typeof app.cpu_id === 'string'
-        })) throw new Error('Invalid local SOTER identity response')
-    return state as unknown as SoterIdentityState
+  async getSoterHal(): Promise<SoterHalState> {
+    const { keymint } = await this.#getHelperPaths()
+    const output = await this.#run(keymint, ['--webui-get-soter-hal'], MAX_SOTER_HAL_JSON_BYTES + 1)
+    return parseSoterHalState(output)
   }
+
+  async setSoterHal(state: SoterHalState): Promise<SoterHalState> {
+    const { keymint } = await this.#getHelperPaths()
+    // Native save resolves empty relay identity fields to the module defaults,
+    // including when the relay is currently disabled. Normalize before the
+    // write so the mandatory read-back check compares effective values.
+    const effectiveState: SoterHalState = {
+      ...state,
+      url: state.url || DEFAULT_SOTER_RELAY_URL,
+      token: state.token || DEFAULT_SOTER_RELAY_TOKEN,
+      device_id: state.device_id || DEFAULT_SOTER_RELAY_DEVICE_ID,
+    }
+    const json = JSON.stringify(effectiveState)
+    if (new TextEncoder().encode(json).byteLength > MAX_SOTER_HAL_JSON_BYTES) {
+      throw new Error('Soter HAL configuration exceeds the byte limit')
+    }
+    // KernelSU runs spawn arguments through a shell. Encode structured data
+    // just like the package-list and activity helpers so JSON stays one arg.
+    const payload = encodeBase64Utf8(json)
+    const output = await this.#run(keymint, ['--webui-set-soter-hal-base64', payload], 256)
+    if (output !== 'soter_hal_saved') {
+      throw new Error('OMK returned an unexpected Soter HAL result')
+    }
+    const persisted = await this.getSoterHal()
+    // App selections have their own merge-on-save command. A settings dialog
+    // must not overwrite selections changed since it was opened.
+    if (JSON.stringify({ ...persisted, app_targets: effectiveState.app_targets }) !== json) {
+      throw new Error('Soter HAL configuration read-back did not match the saved values')
+    }
+    return persisted
+  }
+
+  async setSoterAppTarget(target: string, enabled: boolean): Promise<SoterHalState> {
+    const parsed = parseScoopTarget(target)
+    if (parsed?.kind !== 'package-user' || parsed.target !== target) {
+      throw new Error('Invalid per-app Soter target')
+    }
+    const { keymint } = await this.#getHelperPaths()
+    const payload = encodeBase64Utf8(JSON.stringify({ target, enabled }))
+    const output = await this.#run(keymint, ['--webui-set-soter-app-target-base64', payload], MAX_SOTER_HAL_JSON_BYTES + 1)
+    const reported = parseSoterHalState(output)
+    const persisted = await this.getSoterHal()
+    for (const state of [reported, persisted]) {
+      if (state.app_targets.includes(target) !== enabled
+          || (enabled && (!state.app_enabled || !state.remote_enabled))) {
+        throw new Error('Soter app activation read-back did not match the requested state')
+      }
+    }
+    return persisted
+  }
+
   #helperPaths: Promise<HelperPaths> | null = null
 
   async clearGmsCache(): Promise<void> {

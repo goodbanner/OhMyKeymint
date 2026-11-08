@@ -30,9 +30,6 @@ import {
   type SelectableAppEntry,
 } from '../app_list/app_list'
 import { type Cli, type SoterHalState } from '../cli'
-  type SelectableAppEntry,
-} from '../app_list/app_list'
-import { type Cli, type SoterHalState } from '../cli'
 import { i18n } from '../i18n'
 import { isDev } from '../utils/dev'
 import TargetAppRow from './TargetAppRow.vue'
@@ -99,9 +96,9 @@ const soterSelection = ref<Pick<SoterHalState, 'enabled' | 'remote_enabled' | 'a
 let appSettingsGeneration = 0
 let returnToSystemSheet = false
 const appSoterSelected = computed(() => !!appSettingsEntry.value
-  && soterSelection.value?.app_targets.includes(appSettingsEntry.value.targetKey) === true)
+  && soterSelection.value?.app_targets.includes(appSettingsEntry.value?.targetKey) === true)
 const appSoterReady = computed(() => soterSelection.value?.app_enabled === true
-  && soterSelection.value.remote_enabled)
+  && soterSelection.value?.remote_enabled)
 
 let disposed = false
 
@@ -398,7 +395,6 @@ function dismissOverlay(): boolean {
   }
   return false
 }
-}
 function openAppSettings(entry: SelectableAppEntry): void {
   if (props.loading || appSettingsBusy.value) return
   returnToSystemSheet = systemSheetOpen.value
@@ -470,7 +466,6 @@ function retainSoterSelection(state: SoterHalState): void {
     app_enabled: state.app_enabled,
     app_targets: [...state.app_targets],
   }
-}
 }
 
 onBeforeUnmount(() => {
@@ -726,7 +721,7 @@ defineExpose({
     <MiuixBottomSheet
       v-if="appSheetOpen"
       :model-value="appSheetOpen"
-      :title="appSettingsEntry.appName"
+      :title="appSettingsEntry?.appName"
       :close-on-click-modal="!appSettingsBusy"
       @update:model-value="value => { if (!value) closeAppSettings() }"
     >
@@ -739,14 +734,14 @@ defineExpose({
           <MiuixIcon :icon="Close" />
         </MiuixIconButton>
       </template>
-      <div class="target-app-sheet" :aria-busy="appSettingsStatus == 'loading' || appSettingsBusy">
-        <p class="target-app-identity">{{ appSettingsEntry.packageName }}</p>
-        <p class="target-app-profile">{{ translate('app_target_user', 'User') }} {{ appSettingsEntry.userId }}</p>
-        <div v-if="appSettingsStatus == 'loading'" class="target-app-pending" role="status">
+      <div class="target-app-sheet" :aria-busy="appSettingsStatus === 'loading' || appSettingsBusy">
+        <p class="target-app-identity">{{ appSettingsEntry?.packageName }}</p>
+        <p class="target-app-profile">{{ translate('app_target_user', 'User') }} {{ appSettingsEntry?.userId }}</p>
+        <div v-if="appSettingsStatus === 'loading'" class="target-app-pending" role="status">
           <MiuixProgressIndicator type="circular" :size="28" />
           <span>{{ translate('home_status_loading', 'Checking') }}</span>
         </div>
-        <template v-else-if="appSettingsStatus == 'ready'">
+        <template v-else-if="appSettingsStatus === 'ready'">
           <MiuixSwitchPreference
             :model-value="appSoterSelected && appSoterReady"
             :title="translate('soter_app_enabled', 'Take over remote SOTER')"
@@ -754,7 +749,7 @@ defineExpose({
             :disabled="appSettingsBusy || isDev()"
             @update:model-value="setAppSoter"
           />
-          <p v-if="soterSelection.enabled" class="target-app-note">
+          <p v-if="soterSelection?.enabled" class="target-app-note">
             {{ translate('soter_app_global_effect', 'Global takeover replaces the stock HAL for all apps using it. If the relay is enabled, unselected apps may also use the remote relay.') }}
           </p>
           <p v-if="appSoterSelected && !appSoterReady" class="target-app-note target-app-note--warning" role="status">
@@ -765,7 +760,7 @@ defineExpose({
           </div>
         </template>
         <p v-if="appSettingsError" class="target-app-error" role="alert">{{ appSettingsError }}</p>
-        <MiuixButton v-if="appSettingsStatus == 'error'" @click="loadAppSettings">
+        <MiuixButton v-if="appSettingsStatus === 'error'" @click="loadAppSettings">
           {{ translate('functional_button_retry', 'Retry') }}
         </MiuixButton>
         <p v-if="isDev()" class="target-app-note">{{ translate('soter_hal_preview', 'Preview only. Device settings cannot be saved here.') }}</p>

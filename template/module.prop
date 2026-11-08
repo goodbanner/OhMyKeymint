@@ -3,5 +3,5 @@ name=Oh My Keymint
 version=${versionName}
 versionCode=${versionCode}
 author=James Clef,ITxiao6666
-description=Custom keystore implementation for Android Keystore Spoofer
+description=Custom keystore implementation for Android Keystore Spoofer (1.4.2 base + 1.3.5 SOTER: WeChat fingerprint fix & Tencent Soter Server fix)
 updateJson=https://raw.githubusercontent.com/ITxiao6666/OhMyKeymint/changelog/update.json
